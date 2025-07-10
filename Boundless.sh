@@ -1696,7 +1696,7 @@ EOF
 
 # 主安装流程
 main() {
-    echo -e "${BOLD}${CYAN}Boundless 证明节点安装脚本 by 0xMoei${RESET}"
+    echo -e "${BOLD}${CYAN}Boundless 证明节点安装脚本 作者小林${RESET}"
     echo "========================================"
     mkdir -p "$(dirname "$LOG_FILE")"
     touch "$LOG_FILE"
