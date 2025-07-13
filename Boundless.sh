@@ -513,7 +513,9 @@ clone_repository() {
             prompt "删除并重新克隆? (y/N): "
             read -r response
             if [[ "$response" =~ ^[yY]$ ]]; then
+                info "删除现有目录 $INSTALL_DIR..."
                 rm -rf "$INSTALL_DIR"
+                info "开始克隆新仓库..."
             else
                 cd "$INSTALL_DIR"
                 if ! git pull origin release-2.1 2>&1 >> "$LOG_FILE"; then
@@ -524,21 +526,25 @@ clone_repository() {
             fi
         fi
     fi
-    {
-        if ! git clone https://github.com/boundless-xyz/boundless "$INSTALL_DIR" 2>&1; then
-            error "克隆仓库失败"
-            exit $EXIT_DEPENDENCY_FAILED
-        fi
-        cd "$INSTALL_DIR"
-        if ! git checkout release-2.1 2>&1; then
-            error "检出 release-2.1 失败"
-            exit $EXIT_DEPENDENCY_FAILED
-        fi
-        if ! git submodule update --init --recursive 2>&1; then
-            error "初始化子模块失败"
-            exit $EXIT_DEPENDENCY_FAILED
-        fi
-    } >> "$LOG_FILE" 2>&1
+    info "正在克隆 Boundless 仓库..."
+    if ! git clone https://github.com/boundless-xyz/boundless "$INSTALL_DIR" 2>&1 >> "$LOG_FILE"; then
+        error "克隆仓库失败"
+        exit $EXIT_DEPENDENCY_FAILED
+    fi
+    
+    cd "$INSTALL_DIR"
+    info "正在检出 release-2.1 分支..."
+    if ! git checkout release-2.1 2>&1 >> "$LOG_FILE"; then
+        error "检出 release-2.1 失败"
+        exit $EXIT_DEPENDENCY_FAILED
+    fi
+    
+    info "正在初始化子模块..."
+    if ! git submodule update --init --recursive 2>&1 >> "$LOG_FILE"; then
+        error "初始化子模块失败"
+        exit $EXIT_DEPENDENCY_FAILED
+    fi
+    
     success "仓库已克隆并初始化"
 }
 
