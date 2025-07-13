@@ -169,7 +169,8 @@ check_os() {
             exit $EXIT_OS_CHECK_FAILED
         elif [[ "${VERSION_ID,,}" != "22.04" && "${VERSION_ID,,}" != "20.04" ]]; then
             warning "已在 Ubuntu 20.04/22.04 上测试。您的版本: $VERSION_ID"
-            read -e -p "是否继续? (y/N): " response
+            prompt "是否继续? (y/N): "
+            read -r response
             if [[ ! "$response" =~ ^[yY]$ ]]; then
                 exit $EXIT_USER_ABORT
             fi
@@ -473,7 +474,7 @@ install_rust_deps() {
 
     # 使用 RISC Zero 工具链安装 bento-client
     info "安装 bento-client..."
-    RUSTUP_TOOLCHAIN=$TOOLCHAIN cargo install --locked --git https://github.com/risc0/risc0 bento-client --branch release-2.1 --bin bento_cli >> "$LOG_FILE" 2>&1 || {
+    RUSTUP_TOOLCHAIN=$TOOLCHAIN cargo install --git https://github.com/risc0/risc0 bento-client --bin bento_cli >> "$LOG_FILE" 2>&1 || {
         error "安装 bento-client 失败"
         exit $EXIT_DEPENDENCY_FAILED
     }
@@ -509,12 +510,13 @@ clone_repository() {
             rm -rf "$INSTALL_DIR"
         else
             warning "Boundless 目录已存在于 $INSTALL_DIR"
-            read -e -p "删除并重新克隆? (y/N): " response
+            prompt "删除并重新克隆? (y/N): "
+            read -r response
             if [[ "$response" =~ ^[yY]$ ]]; then
                 rm -rf "$INSTALL_DIR"
             else
                 cd "$INSTALL_DIR"
-                if ! git pull origin release-0.10 2>&1 >> "$LOG_FILE"; then
+                if ! git pull origin release-2.1 2>&1 >> "$LOG_FILE"; then
                     error "更新仓库失败"
                     exit $EXIT_DEPENDENCY_FAILED
                 fi
@@ -528,8 +530,8 @@ clone_repository() {
             exit $EXIT_DEPENDENCY_FAILED
         fi
         cd "$INSTALL_DIR"
-        if ! git checkout release-0.10 2>&1; then
-            error "检出 release-0.10 失败"
+        if ! git checkout release-2.1 2>&1; then
+            error "检出 release-2.1 失败"
             exit $EXIT_DEPENDENCY_FAILED
         fi
         if ! git submodule update --init --recursive 2>&1; then
@@ -620,27 +622,6 @@ x-exec-agent-common: &exec-agent-common
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
   entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
 
-x-broker-environment: &broker-environment
-  RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
-  # RUST_BACKTRACE: 1
-  PRIVATE_KEY: ${PRIVATE_KEY}
-  RPC_URL: ${RPC_URL}
-  BOUNDLESS_MARKET_ADDRESS:
-  SET_VERIFIER_ADDRESS:
-  ORDER_STREAM_URL:
-  # TODO these env vars are temporary for handling cancellations. These should be removed when
-  # updated.
-  POSTGRES_HOST:
-  POSTGRES_DB:
-  POSTGRES_PORT:
-  POSTGRES_USER:
-  POSTGRES_PASS:
-
-x-broker-common: &broker-common
-  restart: always
-  depends_on:
-    - rest_api
-
 services:
   redis:
     hostname: ${REDIS_HOST:-redis}
@@ -670,7 +651,6 @@ services:
   minio:
     hostname: ${MINIO_HOST:-minio}
     image: ${MINIO_IMG:-minio/minio:RELEASE.2024-05-28T17-19-04Z}
-    restart: always
     ports:
       - '9000:9000'
       - '9001:9001'
@@ -738,6 +718,7 @@ EOF
             - driver: nvidia
               device_ids: ['$i']
               capabilities: [gpu]
+
 EOF
     done
     cat >> "$COMPOSE_FILE" << 'EOF'
@@ -762,58 +743,44 @@ EOF
     entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
 
   broker:
-    <<: *broker-common
+    restart: always
+    depends_on:
+      - rest_api
+EOF
+    for i in $(seq 0 $((GPU_COUNT - 1))); do
+        echo "      - gpu_prove_agent$i" >> "$COMPOSE_FILE"
+    done
+    cat >> "$COMPOSE_FILE" << 'EOF'
+      - exec_agent0
+      - exec_agent1
+      - aux_agent
+      - snark_agent
+      - redis
+      - postgres
+    profiles: [broker]
+    build:
+      context: .
+      dockerfile: dockerfiles/broker.dockerfile
+    mem_limit: 2G
+    cpus: 2
+    stop_grace_period: 3h
     volumes:
       - type: bind
         source: ./broker.toml
         target: /app/broker.toml
       - broker-data:/db/
-      # Uncomment when using locally built set-builder and assessor guest programs
-      # - type: bind
-      #   source: ./target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
-      #   target: /target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
-      # - type: bind
-      #   source: ./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
-      #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+    network_mode: host
     environment:
-      <<: *broker-environment
+      RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
       PRIVATE_KEY: ${PRIVATE_KEY}
       RPC_URL: ${RPC_URL}
-    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
-
-  # # Example second broker with different configuration
-  # broker2:
-  #   <<: *broker-common
-  #   volumes:
-  #     - type: bind
-  #       source: ./broker2.toml
-  #       target: /app/broker.toml
-  #     - broker2-data:/db/
-  #   environment:
-  #     <<: *broker-environment
-  #     # Note: use a different variable if you want to use different private keys in each broker
-  #     PRIVATE_KEY: ${PRIVATE_KEY}
-  #     RPC_URL: ${RPC_URL_2}
-  #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
-EOF
-    for i in $(seq 0 $((GPU_COUNT - 1))); do
-        echo "    - gpu_prove_agent$i" >> "$COMPOSE_FILE"
-    done
-    cat >> "$COMPOSE_FILE" << 'EOF'
-    - exec_agent0
-    - exec_agent1
-    - aux_agent
-    - snark_agent
-    - redis
-    - postgres
-  profiles: [broker]
-  build:
-    context: .
-    dockerfile: dockerfiles/broker.dockerfile
-  mem_limit: 2G
-  cpus: 2
-  stop_grace_period: 3h
-  network_mode: host
+      ORDER_STREAM_URL:
+      POSTGRES_HOST:
+      POSTGRES_DB:
+      POSTGRES_PORT:
+      POSTGRES_USER:
+      POSTGRES_PASS:
+    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --set-verifier-address ${SET_VERIFIER_ADDRESS} --boundless-market-address ${BOUNDLESS_MARKET_ADDRESS} --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
 volumes:
   redis-data:
@@ -821,7 +788,6 @@ volumes:
   minio-data:
   grafana-data:
   broker-data:
-  # broker2-data:
 EOF
     success "compose.yml 已为 $GPU_COUNT 个 GPU 配置"
 }
@@ -833,7 +799,8 @@ configure_network() {
     echo "1) Base 主网"
     echo "2) Base Sepolia 测试网"
     echo "3) 以太坊 Sepolia 测试网"
-    read -e -p "选择网络 (1-3): " network_choice
+    prompt "选择网络 (1-3): "
+    read -r network_choice
     case $network_choice in
         1) NETWORK="base" ;;
         2) NETWORK="base-sepolia" ;;
@@ -851,12 +818,14 @@ configure_network() {
     echo "- BlockPi (Base 网络免费)"
     echo "- Chainstack (设置 lookback_blocks=0)"
     echo "- 您自己的节点 RPC"
-    read -e -p "输入 RPC URL: " RPC_URL
+    prompt "输入 RPC URL: "
+    read -r RPC_URL
     if [[ -z "$RPC_URL" ]]; then
         error "RPC URL 不能为空"
         exit $EXIT_NETWORK_ERROR
     fi
-    read -e -p "输入您的钱包私钥 (不带 0x 前缀): " PRIVATE_KEY
+    prompt "输入您的钱包私钥 (不带 0x 前缀): "
+    read -rs PRIVATE_KEY
     echo
     if [[ -z "$PRIVATE_KEY" ]]; then
         error "私钥不能为空"
@@ -932,28 +901,34 @@ configure_broker() {
     echo "配置关键参数 (按 Enter 保持默认值):"
     echo -e "\n${CYAN}mcycle_price${RESET}: 每百万周期的原生代币价格"
     echo "越低 = 更有竞争力，但利润更少"
-    read -e -p "mcycle_price [默认: 0.0000005]: " mcycle_price
+    prompt "mcycle_price [默认: 0.0000005]: "
+    read -r mcycle_price
     mcycle_price=${mcycle_price:-0.0000005}
     echo -e "\n${CYAN}peak_prove_khz${RESET}: 最大证明速度 (kHz)"
     echo "稍后，通过管理脚本对 GPU 进行基准测试，然后根据结果设置此值"
-    read -e -p "peak_prove_khz [默认: 100]: " peak_prove_khz
+    prompt "peak_prove_khz [默认: 100]: "
+    read -r peak_prove_khz
     peak_prove_khz=${peak_prove_khz:-100}
     echo -e "\n${CYAN}max_mcycle_limit${RESET}: 接受的最大周期数 (百万)"
     echo "越高 = 接受更大的证明"
-    read -e -p "max_mcycle_limit [默认: 8000]: " max_mcycle_limit
+    prompt "max_mcycle_limit [默认: 8000]: "
+    read -r max_mcycle_limit
     max_mcycle_limit=${max_mcycle_limit:-8000}
     echo -e "\n${CYAN}min_deadline${RESET}: 截止时间前的最少秒数"
     echo "越高 = 更安全，但可能错过截止时间低于您设置的最小值的订单"
-    read -e -p "min_deadline [默认: 300]: " min_deadline
+    prompt "min_deadline [默认: 300]: "
+    read -r min_deadline
     min_deadline=${min_deadline:-300}
     echo -e "\n${CYAN}max_concurrent_proofs${RESET}: 最大并行证明数"
     echo "越高 = 更多吞吐量，但可能错过截止时间的风险"
-    read -e -p "max_concurrent_proofs [默认: 2]: " max_concurrent_proofs
+    prompt "max_concurrent_proofs [默认: 2]: "
+    read -r max_concurrent_proofs
     max_concurrent_proofs=${max_concurrent_proofs:-2}
     echo -e "\n${CYAN}lockin_priority_gas${RESET}: 锁定交易的额外 gas (Gwei)"
     echo "在竞标订单中击败其他证明者的重要指标"
     echo "越高 = 赢得竞标的更好机会"
-    read -e -p "lockin_priority_gas [默认: 0]: " lockin_priority_gas
+    prompt "lockin_priority_gas [默认: 0]: "
+    read -r lockin_priority_gas
     sed -i "s/mcycle_price = \"[^\"]*\"/mcycle_price = \"$mcycle_price\"/" "$BROKER_CONFIG"
     sed -i "s/peak_prove_khz = [0-9]*/peak_prove_khz = $peak_prove_khz/" "$BROKER_CONFIG"
     sed -i "s/max_mcycle_limit = [0-9]*/max_mcycle_limit = $max_mcycle_limit/" "$BROKER_CONFIG"
@@ -1560,12 +1535,8 @@ run_benchmark_orders() {
     source .env.broker
     echo -e "${BOLD}${ORANGE}使用订单 ID 进行基准测试${RESET}"
     echo -e "${GRAY}──────────────────${RESET}"
-    echo -e "${BOLD}${GREEN}确保 Broker（或至少 Bento）正在运行${RESET}"
-    echo -e "${GRAY}──────────────────${RESET}"
-    echo "从主网订单 ID 查找 https://explorer.beboundless.xyz/orders"
-    echo "从测试网订单 ID 查找 https://explorer.testnet.beboundless.xyz/orders"
-    echo -e "${GRAY}──────────────────${RESET}"
-    read -p "离线订单 ID (逗号分隔): " ids
+    echo "从 https://explorer.beboundless.xyz/orders 输入订单 ID"
+    read -p "订单 ID (逗号分隔): " ids
     if [[ -n "$ids" ]]; then
         boundless proving benchmark --request-ids "$ids"
         echo -e "\n按任意键继续..."
@@ -1741,7 +1712,8 @@ main() {
             warning "以 root 用户运行（通过 --allow-root 允许）"
         else
             warning "以 root 用户运行"
-            read -e -p "继续? (y/N): " response
+            prompt "继续? (y/N): "
+            read -r response
             if [[ ! "$response" =~ ^[yY]$ ]]; then
                 exit $EXIT_USER_ABORT
             fi
@@ -1788,7 +1760,8 @@ main() {
         cd "$INSTALL_DIR"
         ./prover.sh
     else
-        read -e -p "现在转到管理脚本? (y/N): " start_now
+        prompt "现在转到管理脚本? (y/N): "
+        read -r start_now
         if [[ "$start_now" =~ ^[yY]$ ]]; then
             cd "$INSTALL_DIR"
             ./prover.sh
