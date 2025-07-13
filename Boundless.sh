@@ -518,7 +518,7 @@ clone_repository() {
                 info "开始克隆新仓库..."
             else
                 cd "$INSTALL_DIR"
-                if ! git pull origin release-2.1 2>&1 >> "$LOG_FILE"; then
+                if ! git pull origin release-0.12 2>&1 >> "$LOG_FILE"; then
                     error "更新仓库失败"
                     exit $EXIT_DEPENDENCY_FAILED
                 fi
@@ -533,9 +533,9 @@ clone_repository() {
     fi
     
     cd "$INSTALL_DIR"
-    info "正在检出 release-2.1 分支..."
-    if ! git checkout release-2.1 2>&1 >> "$LOG_FILE"; then
-        error "检出 release-2.1 失败"
+    info "正在检出 release-0.12 分支..."
+    if ! git checkout release-0.12 2>&1 >> "$LOG_FILE"; then
+        error "检出 release-0.12 失败"
         exit $EXIT_DEPENDENCY_FAILED
     fi
     
