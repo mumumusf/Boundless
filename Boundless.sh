@@ -585,10 +585,6 @@ detect_gpus() {
 # 为多个 GPU 配置 compose.yml
 configure_compose() {
     info "为 $GPU_COUNT 个 GPU 配置 compose.yml..."
-    if [[ $GPU_COUNT -eq 1 ]]; then
-        info "检测到单个 GPU，使用默认 compose.yml"
-        return
-    fi
     cat > "$COMPOSE_FILE" << 'EOF'
 name: bento
 # 锚点:
@@ -621,6 +617,27 @@ x-exec-agent-common: &exec-agent-common
     <<: *base-environment
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
   entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21}
+
+x-broker-environment: &broker-environment
+  RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
+  # RUST_BACKTRACE: 1
+  PRIVATE_KEY: ${PRIVATE_KEY}
+  RPC_URL: ${RPC_URL}
+  BOUNDLESS_MARKET_ADDRESS:
+  SET_VERIFIER_ADDRESS:
+  ORDER_STREAM_URL:
+  # TODO these env vars are temporary for handling cancellations. These should be removed when
+  # updated.
+  POSTGRES_HOST:
+  POSTGRES_DB:
+  POSTGRES_PORT:
+  POSTGRES_USER:
+  POSTGRES_PASS:
+
+x-broker-common: &broker-common
+  restart: always
+  depends_on:
+    - rest_api
 
 services:
   redis:
@@ -743,9 +760,24 @@ EOF
     entrypoint: /app/rest_api --bind-addr 0.0.0.0:8081 --snark-timeout ${SNARK_TIMEOUT:-180}
 
   broker:
-    restart: always
-    depends_on:
-      - rest_api
+    <<: *broker-common
+    volumes:
+      - type: bind
+        source: ./broker.toml
+        target: /app/broker.toml
+      - broker-data:/db/
+      # Uncomment when using locally built set-builder and assessor guest programs
+      # - type: bind
+      #   source: ./target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+      #   target: /target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin
+      # - type: bind
+      #   source: ./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+      #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
+    environment:
+      <<: *broker-environment
+      PRIVATE_KEY: ${PRIVATE_KEY}
+      RPC_URL: ${RPC_URL}
+    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 EOF
     for i in $(seq 0 $((GPU_COUNT - 1))); do
         echo "      - gpu_prove_agent$i" >> "$COMPOSE_FILE"
@@ -764,23 +796,22 @@ EOF
     mem_limit: 2G
     cpus: 2
     stop_grace_period: 3h
-    volumes:
-      - type: bind
-        source: ./broker.toml
-        target: /app/broker.toml
-      - broker-data:/db/
     network_mode: host
-    environment:
-      RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
-      PRIVATE_KEY: ${PRIVATE_KEY}
-      RPC_URL: ${RPC_URL}
-      ORDER_STREAM_URL:
-      POSTGRES_HOST:
-      POSTGRES_DB:
-      POSTGRES_PORT:
-      POSTGRES_USER:
-      POSTGRES_PASS:
-    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --set-verifier-address ${SET_VERIFIER_ADDRESS} --boundless-market-address ${BOUNDLESS_MARKET_ADDRESS} --config-file /app/broker.toml --bento-api-url http://localhost:8081
+
+  # # Example second broker with different configuration
+  # broker2:
+  #   <<: *broker-common
+  #   volumes:
+  #     - type: bind
+  #       source: ./broker2.toml
+  #       target: /app/broker.toml
+  #     - broker2-data:/db/
+  #   environment:
+  #     <<: *broker-environment
+  #     # Note: use a different variable if you want to use different private keys in each broker
+  #     PRIVATE_KEY: ${PRIVATE_KEY}
+  #     RPC_URL: ${RPC_URL_2}
+  #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
 volumes:
   redis-data:
@@ -788,6 +819,7 @@ volumes:
   minio-data:
   grafana-data:
   broker-data:
+  # broker2-data:
 EOF
     success "compose.yml 已为 $GPU_COUNT 个 GPU 配置"
 }
