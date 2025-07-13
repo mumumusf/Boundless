@@ -631,16 +631,16 @@ x-broker-environment: &broker-environment
   # RUST_BACKTRACE: 1
   PRIVATE_KEY: ${PRIVATE_KEY}
   RPC_URL: ${RPC_URL}
-  BOUNDLESS_MARKET_ADDRESS:
-  SET_VERIFIER_ADDRESS:
-  ORDER_STREAM_URL:
+  BOUNDLESS_MARKET_ADDRESS: ${BOUNDLESS_MARKET_ADDRESS}
+  SET_VERIFIER_ADDRESS: ${SET_VERIFIER_ADDRESS}
+  ORDER_STREAM_URL: ${ORDER_STREAM_URL}
   # TODO these env vars are temporary for handling cancellations. These should be removed when
   # updated.
-  POSTGRES_HOST:
-  POSTGRES_DB:
-  POSTGRES_PORT:
-  POSTGRES_USER:
-  POSTGRES_PASS:
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+  POSTGRES_DB: ${POSTGRES_DB:-taskdb}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_USER: ${POSTGRES_USER:-worker}
+  POSTGRES_PASS: ${POSTGRES_PASSWORD:-password}
 
 x-broker-common: &broker-common
   restart: always
@@ -783,9 +783,7 @@ EOF
       #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
     environment:
       <<: *broker-environment
-      PRIVATE_KEY: ${PRIVATE_KEY}
-      RPC_URL: ${RPC_URL}
-    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 --private-key ${PRIVATE_KEY}
+    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 --private-key ${PRIVATE_KEY} --boundless-market-address ${BOUNDLESS_MARKET_ADDRESS} --set-verifier-address ${SET_VERIFIER_ADDRESS}
 EOF
     for i in $(seq 0 $((GPU_COUNT - 1))); do
         echo "      - gpu_prove_agent$i" >> "$COMPOSE_FILE"
@@ -819,7 +817,7 @@ EOF
   #     # Note: use a different variable if you want to use different private keys in each broker
   #     PRIVATE_KEY: ${PRIVATE_KEY}
   #     RPC_URL: ${RPC_URL_2}
-  #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 --private-key ${PRIVATE_KEY}
+  #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 --private-key ${PRIVATE_KEY} --boundless-market-address ${BOUNDLESS_MARKET_ADDRESS} --set-verifier-address ${SET_VERIFIER_ADDRESS}
 
 volumes:
   redis-data:
