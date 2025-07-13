@@ -474,7 +474,7 @@ install_rust_deps() {
 
     # 使用 RISC Zero 工具链安装 bento-client
     info "安装 bento-client..."
-    RUSTUP_TOOLCHAIN=$TOOLCHAIN cargo install --git https://github.com/risc0/risc0 bento-client --bin bento_cli >> "$LOG_FILE" 2>&1 || {
+    RUSTUP_TOOLCHAIN=$TOOLCHAIN cargo install --locked --git https://github.com/risc0/risc0 bento-client --branch release-2.1 --bin bento_cli >> "$LOG_FILE" 2>&1 || {
         error "安装 bento-client 失败"
         exit $EXIT_DEPENDENCY_FAILED
     }
@@ -516,7 +516,7 @@ clone_repository() {
                 rm -rf "$INSTALL_DIR"
             else
                 cd "$INSTALL_DIR"
-                if ! git pull origin release-0.12 2>&1 >> "$LOG_FILE"; then
+                if ! git pull origin release-0.10 2>&1 >> "$LOG_FILE"; then
                     error "更新仓库失败"
                     exit $EXIT_DEPENDENCY_FAILED
                 fi
@@ -530,8 +530,8 @@ clone_repository() {
             exit $EXIT_DEPENDENCY_FAILED
         fi
         cd "$INSTALL_DIR"
-        if ! git checkout release-0.12 2>&1; then
-            error "检出 release-0.12 失败"
+        if ! git checkout release-0.10 2>&1; then
+            error "检出 release-0.10 失败"
             exit $EXIT_DEPENDENCY_FAILED
         fi
         if ! git submodule update --init --recursive 2>&1; then
@@ -547,11 +547,19 @@ detect_gpus() {
     info "检测 GPU 配置..."
     if ! command_exists nvidia-smi; then
         error "未找到 nvidia-smi。GPU 驱动可能未正确安装。"
+        warning "可能的解决方案："
+        warning "1. 重启系统: sudo reboot"
+        warning "2. 手动安装驱动: sudo ubuntu-drivers autoinstall"
+        warning "3. 检查GPU是否正确连接"
         exit $EXIT_GPU_ERROR
     fi
     GPU_COUNT=$(nvidia-smi -L 2>/dev/null | wc -l)
     if [[ $GPU_COUNT -eq 0 ]]; then
         error "未检测到 GPU"
+        warning "可能的原因："
+        warning "1. GPU 驱动未正确安装"
+        warning "2. 需要重启系统"
+        warning "3. GPU 硬件问题"
         exit $EXIT_GPU_ERROR
     fi
     info "发现 $GPU_COUNT 个 GPU"
@@ -777,7 +785,7 @@ EOF
       <<: *broker-environment
       PRIVATE_KEY: ${PRIVATE_KEY}
       RPC_URL: ${RPC_URL}
-    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
+    entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 --private-key ${PRIVATE_KEY}
 EOF
     for i in $(seq 0 $((GPU_COUNT - 1))); do
         echo "      - gpu_prove_agent$i" >> "$COMPOSE_FILE"
@@ -811,7 +819,7 @@ EOF
   #     # Note: use a different variable if you want to use different private keys in each broker
   #     PRIVATE_KEY: ${PRIVATE_KEY}
   #     RPC_URL: ${RPC_URL_2}
-  #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
+  #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081 --private-key ${PRIVATE_KEY}
 
 volumes:
   redis-data:
@@ -856,11 +864,28 @@ configure_network() {
         error "RPC URL 不能为空"
         exit $EXIT_NETWORK_ERROR
     fi
+    # 测试 RPC 连接
+    info "测试 RPC 连接..."
+    if ! curl -s -X POST "$RPC_URL" \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+        --connect-timeout 10 --max-time 30 > /dev/null 2>&1; then
+        warning "RPC 连接测试失败，请检查 URL 是否正确且可访问"
+        warning "继续安装，但启动时可能遇到连接问题"
+    else
+        success "RPC 连接测试通过"
+    fi
     prompt "输入您的钱包私钥 (不带 0x 前缀): "
     read -rs PRIVATE_KEY
     echo
     if [[ -z "$PRIVATE_KEY" ]]; then
         error "私钥不能为空"
+        exit $EXIT_NETWORK_ERROR
+    fi
+    # 验证私钥格式（64个十六进制字符）
+    if [[ ! "$PRIVATE_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        error "无效的私钥格式！私钥必须是64个十六进制字符（不带0x前缀）"
+        error "您输入了: ${#PRIVATE_KEY} 个字符"
         exit $EXIT_NETWORK_ERROR
     fi
     cat > "$INSTALL_DIR/.env.broker" << EOF
@@ -1758,12 +1783,12 @@ main() {
     update_system
     info "安装所有依赖..."
     install_basic_deps
-    # install_gpu_drivers
+    install_gpu_drivers
     install_docker
     install_nvidia_toolkit
     install_rust
     install_just
-    # install_cuda
+    install_cuda
     install_rust_deps
     clone_repository
     detect_gpus
@@ -1788,6 +1813,10 @@ main() {
     echo "您的私钥存储在 $INSTALL_DIR/.env.* 文件中。"
     echo "确保这些文件不被未授权用户访问。"
     echo "当前权限设置为 600（仅所有者读写）。"
+    echo -e "\n${YELLOW}重要提示:${RESET}"
+    echo "如果这是首次安装GPU驱动，建议重启系统以确保驱动正常工作："
+    echo "sudo reboot"
+    echo "重启后，运行 nvidia-smi 验证GPU驱动是否正常工作。"
     if [[ "$START_IMMEDIATELY" == "true" ]]; then
         cd "$INSTALL_DIR"
         ./prover.sh
