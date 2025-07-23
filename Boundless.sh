@@ -518,7 +518,7 @@ clone_repository() {
                 info "开始克隆新仓库..."
             else
                 cd "$INSTALL_DIR"
-                if ! git pull origin main 2>&1 >> "$LOG_FILE"; then
+                if ! git pull origin release-0.13 2>&1 >> "$LOG_FILE"; then
                     error "更新仓库失败"
                     exit $EXIT_DEPENDENCY_FAILED
                 fi
@@ -533,14 +533,11 @@ clone_repository() {
     fi
     
     cd "$INSTALL_DIR"
-    
-    # 直接检出 main 分支
-    info "检出 main 分支..."
-    if ! git checkout main 2>&1 >> "$LOG_FILE"; then
-        error "检出 main 分支失败"
+    info "正在检出 release-0.13 分支..."
+    if ! git checkout release-0.13 2>&1 >> "$LOG_FILE"; then
+        error "检出 release-0.13 失败"
         exit $EXIT_DEPENDENCY_FAILED
     fi
-    info "成功检出 main 分支"
     
     info "正在初始化子模块..."
     if ! git submodule update --init --recursive 2>&1 >> "$LOG_FILE"; then
