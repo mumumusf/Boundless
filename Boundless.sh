@@ -522,14 +522,11 @@ select_version() {
     info "选择 Boundless 版本..."
     echo -e "\n${BOLD}可用版本:${RESET}"
     echo "1) release-0.12 (稳定版本)"
-    echo "2) release-0.13 (最新版本，推荐)"
+    echo "2) release-0.13 (最新版本)"
     
     while true; do
-        prompt "选择版本 (1-2) [默认: 2]: "
+        prompt "选择版本 (1-2): "
         read -r version_choice
-        
-        # 默认选择 release-0.13
-        version_choice=${version_choice:-2}
         
         case $version_choice in
             1)
@@ -539,6 +536,9 @@ select_version() {
             2)
                 SELECTED_VERSION="release-0.13"
                 break
+                ;;
+            "")
+                warning "请选择一个版本，不能为空"
                 ;;
             *)
                 warning "无效选择，请输入 1 或 2"
