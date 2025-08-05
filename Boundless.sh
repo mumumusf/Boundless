@@ -66,7 +66,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --allow-root        允许以 root 用户运行（不提示）"
             echo "  --force-reclone     如果目录已存在则自动删除并重新克隆"
             echo "  --start-immediately 安装完成后自动运行管理脚本"
-            echo "  --version VERSION   指定版本 (release-0.12 或 release-0.13)"
+            echo "  --version VERSION   指定版本 (release-0.12 或 release-0.13.1)"
             echo "  --help              显示本帮助信息"
             exit 0
             ;;
@@ -511,8 +511,8 @@ install_rust_deps() {
 select_version() {
     if [[ -n "$SELECTED_VERSION" ]]; then
         # 验证命令行指定的版本
-        if [[ "$SELECTED_VERSION" != "release-0.12" && "$SELECTED_VERSION" != "release-0.13" ]]; then
-            error "无效的版本: $SELECTED_VERSION。支持的版本: release-0.12, release-0.13"
+        if [[ "$SELECTED_VERSION" != "release-0.12" && "$SELECTED_VERSION" != "release-0.13.1" ]]; then
+            error "无效的版本: $SELECTED_VERSION。支持的版本: release-0.12, release-0.13.1"
             exit $EXIT_USER_ABORT
         fi
         info "使用指定版本: $SELECTED_VERSION"
@@ -522,7 +522,7 @@ select_version() {
     info "选择 Boundless 版本..."
     echo -e "\n${BOLD}可用版本:${RESET}"
     echo "1) release-0.12 (稳定版本)"
-    echo "2) release-0.13 (最新版本)"
+    echo "2) release-0.13.1 (最新版本)"
     
     while true; do
         prompt "选择版本 (1-2): "
@@ -534,7 +534,7 @@ select_version() {
                 break
                 ;;
             2)
-                SELECTED_VERSION="release-0.13"
+                SELECTED_VERSION="release-0.13.1"
                 break
                 ;;
             "")
