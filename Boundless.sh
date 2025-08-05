@@ -590,10 +590,41 @@ clone_repository() {
     fi
     
     cd "$INSTALL_DIR"
-    info "正在检出 $SELECTED_VERSION 分支..."
-    if ! git checkout $SELECTED_VERSION 2>&1 >> "$LOG_FILE"; then
-        error "检出 $SELECTED_VERSION 失败"
-        exit $EXIT_DEPENDENCY_FAILED
+    
+    # 特殊处理 release-0.13.1 版本
+    if [[ "$SELECTED_VERSION" == "release-0.13.1" ]]; then
+        info "正在基于 v0.13.1 标签创建 $SELECTED_VERSION 分支..."
+        # 首先尝试获取所有标签
+        if ! git fetch --tags 2>&1 >> "$LOG_FILE"; then
+            warning "获取标签失败，尝试继续..."
+        fi
+        
+        # 检查 v0.13.1 标签是否存在
+        if git tag | grep -q "^v0.13.1$"; then
+            info "找到 v0.13.1 标签，基于此创建分支..."
+            if ! git checkout -b $SELECTED_VERSION v0.13.1 2>&1 >> "$LOG_FILE"; then
+                error "基于 v0.13.1 标签创建 $SELECTED_VERSION 分支失败"
+                exit $EXIT_DEPENDENCY_FAILED
+            fi
+        elif git tag | grep -q "^0.13.1$"; then
+            info "找到 0.13.1 标签，基于此创建分支..."
+            if ! git checkout -b $SELECTED_VERSION 0.13.1 2>&1 >> "$LOG_FILE"; then
+                error "基于 0.13.1 标签创建 $SELECTED_VERSION 分支失败"
+                exit $EXIT_DEPENDENCY_FAILED
+            fi
+        else
+            warning "未找到 v0.13.1 或 0.13.1 标签，尝试检出现有分支..."
+            if ! git checkout $SELECTED_VERSION 2>&1 >> "$LOG_FILE"; then
+                error "检出 $SELECTED_VERSION 失败，标签和分支都不存在"
+                exit $EXIT_DEPENDENCY_FAILED
+            fi
+        fi
+    else
+        info "正在检出 $SELECTED_VERSION 分支..."
+        if ! git checkout $SELECTED_VERSION 2>&1 >> "$LOG_FILE"; then
+            error "检出 $SELECTED_VERSION 失败"
+            exit $EXIT_DEPENDENCY_FAILED
+        fi
     fi
     
     info "正在初始化子模块..."
